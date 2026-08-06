@@ -25,8 +25,16 @@ ORG-SPECIFIC RESUME STANDARDS (for Azure Data Engineer candidates):
   "Azure Data Engineer"; Roles & Responsibilities should have AT LEAST 10 bullet points
   with keywords (ADF, SQL, Python, PySpark, Databricks, Synapse, ADLS, etc.) highlighted.
 - Education: only highest qualification kept.
-- Certifications expected (any of): DP-900, DP-700, Databricks Associate,
-  Databricks Fundamentals, Databricks GenAI Fundamentals.
+- Mandatory Certifications:
+  • DP-900
+  • DP-700
+  • Databricks Associate
+
+- Additional certifications like Databricks Fundamentals or
+  Databricks GenAI Fundamentals are optional.
+
+- If any mandatory certification is missing,
+  mention it explicitly in recommendations and section compliance.
 """
 
 SINGLE_AUDIT_SYSTEM = f"""You are a senior technical recruiter and resume auditor for an
@@ -62,7 +70,7 @@ Return a JSON object with EXACTLY this shape:
     { "section": "Current Role = Azure DE",   "passed": bool, "note": "..." },
     { "section": "Min 10 R&R bullets",        "passed": bool, "note": "..." },
     { "section": "Education (highest only)",  "passed": bool, "note": "..." },
-    { "section": "Certifications listed",     "passed": bool, "note": "..." }
+    {"section": "Mandatory Certifications", "passed": bool,"note": "Mention whether DP-900, DP-700 and Databricks Associate are all present. List missing certifications if any."}
   ],
   "red_flags":   [string],
   "strengths":   [string],
@@ -91,23 +99,24 @@ def audit_resume(resume_text: str, jd_text: Optional[str] = None) -> dict:
 
 
 COMPARE_SYSTEM = """You are a senior technical recruiter for Azure Data Engineering hires.
-Compare candidates head-to-head against an optional job description and the org's resume
-standards. Produce strictly structured JSON."""
 
-COMPARE_SCHEMA_HINT = """
-Return a JSON object with EXACTLY this shape:
-{
-  "ranking": [
-    { "rank": int, "candidate_name": string,
-      "overall_score": int, "jd_match_score": int,
-      "experience_score": int, "quality_score": int,
-      "key_strengths": [string], "key_gaps": [string], "verdict": string }
-  ],
-  "winner": string,
-  "why_winner": string,
-  "comparison_summary": string
-}
-All score keys must be integers 0..100. No prose outside the JSON.
+Compare candidates against the job description and the organization's resume standards.
+
+When ranking candidates, also consider:
+
+- Professional Summary
+- Azure Data Engineering Skills
+- Experience relevance
+- ATS quality
+- Resume quality
+- Mandatory Certifications:
+    • DP-900
+    • DP-700
+    • Databricks Associate
+
+Candidates missing mandatory certifications should receive lower overall evaluations than equally qualified candidates who possess them.
+
+Return only valid JSON.
 """
 
 

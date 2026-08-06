@@ -1,5 +1,8 @@
 from __future__ import annotations
+
 import io
+import fitz
+
 from pypdf import PdfReader
 from docx import Document
 from docx.opc.constants import RELATIONSHIP_TYPE as RT
@@ -18,38 +21,88 @@ def extract_text(file_name: str, file_bytes: bytes) -> str:
 
 
 def _extract_pdf(data: bytes) -> str:
-    reader = PdfReader(io.BytesIO(data))
+    """
+    Extract text from PDF.
+
+    Strategy:
+    1. Try pypdf.
+    2. If very little text is extracted, fall back to PyMuPDF.
+    3. Preserve embedded hyperlinks.
+    """
+
     parts = []
     links = []
-    
-    # 1. Extract visible text layer
-    for page in reader.pages:
-        try:
-            parts.append(page.extract_text() or "")
-        except Exception:
-            continue
-            
-    # 2. Extract hidden interactive hyperlink layers (e.g., icons, anchored text links)
-    for page in reader.pages:
-        try:
-            if "/Annots" in page:
-                for annot in page["/Annots"]:
-                    obj = annot.get_object()
-                    if obj and obj.get("/Subtype") == "/Link":
-                        action = obj.get("/A")
-                        if action and "/URI" in action:
-                            uri = action["/URI"]
-                            if uri:
-                                links.append(str(uri))
-        except Exception:
-            continue
+
+    # -------------------------------------------------
+    # Primary Extraction using pypdf
+    # -------------------------------------------------
+    try:
+        reader = PdfReader(io.BytesIO(data))
+
+        for page in reader.pages:
+            try:
+                txt = page.extract_text()
+                if txt:
+                    parts.append(txt)
+            except Exception:
+                continue
+
+        # Extract hyperlinks
+        for page in reader.pages:
+            try:
+                if "/Annots" in page:
+                    for annot in page["/Annots"]:
+                        obj = annot.get_object()
+
+                        if obj.get("/Subtype") == "/Link":
+                            action = obj.get("/A")
+
+                            if action and "/URI" in action:
+                                links.append(str(action["/URI"]))
+
+            except Exception:
+                continue
+
+    except Exception:
+        pass
 
     full_text = "\n".join(parts).strip()
-    
-    # Securely append hidden links to the text stream for downstream regex & LLM checking
+
+    # -------------------------------------------------
+    # Fallback using PyMuPDF
+    # -------------------------------------------------
+    if len(full_text) < 300:
+
+        try:
+            doc = fitz.open(stream=data, filetype="pdf")
+
+            parts = []
+
+            for page in doc:
+                try:
+                    txt = page.get_text("text")
+
+                    if txt:
+                        parts.append(txt)
+
+                except Exception:
+                    continue
+
+            full_text = "\n".join(parts).strip()
+
+        except Exception:
+            pass
+
+    # -------------------------------------------------
+    # Append hyperlinks
+    # -------------------------------------------------
     if links:
-        full_text += "\n\n--- EXTRACTED EMBEDDED LINKS ---\n" + "\n".join(set(links))
-        
+
+        full_text += (
+            "\n\n--- EXTRACTED EMBEDDED LINKS ---\n"
+            + "\n".join(sorted(set(links)))
+        )
+
     return full_text
 
 

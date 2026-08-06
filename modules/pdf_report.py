@@ -1,287 +1,753 @@
 from __future__ import annotations
+
 import io
 import os
-import sys
 import re
+import sys
+from datetime import datetime
 
-# --- FIX FOR STREAMLIT CLOUD PATH ENGINE CONFLICT ---
+# ---------------------------------------------------------
+# STREAMLIT CLOUD IMPORT FIX
+# ---------------------------------------------------------
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+
 if CURRENT_DIR not in sys.path:
     sys.path.append(CURRENT_DIR)
-# ----------------------------------------------------
 
-from datetime import datetime
+# ---------------------------------------------------------
+# REPORTLAB
+# ---------------------------------------------------------
+
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.styles import (
+    getSampleStyleSheet,
+    ParagraphStyle,
+)
 from reportlab.lib.units import cm
+
 from reportlab.pdfgen import canvas
+
 from reportlab.platypus import (
-    SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image, PageBreak,
+    SimpleDocTemplate,
+    Paragraph,
+    Spacer,
+    Table,
+    TableStyle,
+    Image,
+    PageBreak,
+)
+from xml.sax.saxutils import escape
+# ---------------------------------------------------------
+# CORPORATE BRAND COLORS
+# ---------------------------------------------------------
+
+BRAND_PRIMARY = colors.HexColor("#0F4C81")
+BRAND_ACCENT = colors.HexColor("#16A085")
+BRAND_WARNING = colors.HexColor("#F39C12")
+BRAND_DANGER = colors.HexColor("#C0392B")
+BRAND_TEXT = colors.HexColor("#1F2933")
+BRAND_MUTED = colors.HexColor("#7F8C8D")
+BRAND_LIGHT = colors.HexColor("#F8FAFC")
+BRAND_BORDER = colors.HexColor("#E2E8F0")
+
+# ---------------------------------------------------------
+# ORGANIZATION DETAILS
+# ---------------------------------------------------------
+
+ORG_NAME = os.environ.get(
+    "ORG_NAME",
+    "VisionBoard"
 )
 
-# Professional Corporate Palette
-BRAND_PRIMARY = colors.HexColor("#0F4C81")   # Deep Corporate Navy
-BRAND_ACCENT = colors.HexColor("#16A085")    # Mint Teal Success
-BRAND_TEXT = colors.HexColor("#1F2933")      # Midnight Charcoal
-BRAND_MUTED = colors.HexColor("#7F8C8D")     # Cool Slate Gray
-BRAND_LIGHT = colors.HexColor("#F8FAFC")     # Ultra-light background tint
-BRAND_DANGER = colors.HexColor("#C0392B")    # Crimson Warning
+ORG_TAGLINE = os.environ.get(
+    "ORG_TAGLINE",
+    "AI Powered Resume Auditor"
+)
 
-ORG_NAME = os.environ.get("ORG_NAME", "Resume Audit")
-ORG_TAGLINE = os.environ.get("ORG_TAGLINE", "AI-Powered Resume Audits")
-LOGO_PATH = os.environ.get("LOGO_PATH", "assets/logo.png")
+LOGO_PATH = os.environ.get(
+    "LOGO_PATH",
+    "assets/logo.png"
+)
+
+# ---------------------------------------------------------
+# PAGE NUMBER CANVAS
+# ---------------------------------------------------------
 
 class NumberedCanvas(canvas.Canvas):
-    """
-    Two-pass canvas renderer to dynamically inject high-end corporate 
-    headers/footers and accurate "Page X of Y" pagination.
-    """
+
     def __init__(self, *args, **kwargs):
+
         super().__init__(*args, **kwargs)
+
         self._saved_page_states = []
 
     def showPage(self):
+
         self._saved_page_states.append(dict(self.__dict__))
+
         self._startPage()
 
     def save(self):
-        num_pages = len(self._saved_page_states)
+
+        total_pages = len(self._saved_page_states)
+
         for state in self._saved_page_states:
+
             self.__dict__.update(state)
-            self.draw_page_decorations(num_pages)
+
+            self.draw_page(total_pages)
+
             super().showPage()
+
         super().save()
 
-    def draw_page_decorations(self, page_count):
+    def draw_page(self, total_pages):
+
         self.saveState()
-        self.setFont("Helvetica", 8)
-        self.setFillColor(BRAND_MUTED)
-        
-        # Render clean consistent legal/confidential footer
-        self.drawString(1.8 * cm, 1 * cm, f"© {datetime.now().year} {ORG_NAME} · Confidential Audit Report")
-        
-        # Render dynamic precise pagination
-        page_text = f"Page {self._pageNumber} of {page_count}"
-        self.drawRightString(self._pagesize[0] - 1.8 * cm, 1 * cm, page_text)
+
+        self.setFont(
+            "Helvetica",
+            8,
+        )
+
+        self.setFillColor(
+            BRAND_MUTED
+        )
+
+        footer = (
+            f"© {datetime.now().year} "
+            f"{ORG_NAME} | Confidential Resume Audit"
+        )
+
+        self.drawString(
+            1.8 * cm,
+            1.0 * cm,
+            footer,
+        )
+
+        self.drawRightString(
+            self._pagesize[0] - 1.8 * cm,
+            1.0 * cm,
+            f"Page {self._pageNumber} of {total_pages}",
+        )
+
         self.restoreState()
 
+# ---------------------------------------------------------
+# STYLES
+# ---------------------------------------------------------
 
 def _styles():
-    s = getSampleStyleSheet()
-    s.add(ParagraphStyle(name="H1Brand", parent=s["Heading1"],
-                         textColor=BRAND_PRIMARY, fontName="Helvetica-Bold", fontSize=20, leading=24, spaceAfter=6))
-    s.add(ParagraphStyle(name="H2Brand", parent=s["Heading2"],
-                         textColor=BRAND_PRIMARY, fontName="Helvetica-Bold", fontSize=13, leading=17, spaceBefore=14, spaceAfter=6))
-    s.add(ParagraphStyle(name="Muted", parent=s["BodyText"],
-                         textColor=BRAND_MUTED, fontSize=9, leading=12))
-    s.add(ParagraphStyle(name="Body2", parent=s["BodyText"],
-                         textColor=BRAND_TEXT, fontSize=10, leading=14, wordWrap="CJK"))
-    s.add(ParagraphStyle(name="Body2Small", parent=s["BodyText"],
-                         textColor=BRAND_TEXT, fontSize=9, leading=13, wordWrap="CJK"))
-    s.add(ParagraphStyle(name="TableHeader", parent=s["BodyText"],
-                         textColor=colors.white, fontName="Helvetica-Bold", fontSize=10, leading=14, wordWrap="CJK"))
-    s.add(ParagraphStyle(name="Bullet2", parent=s["BodyText"],
-                         textColor=BRAND_TEXT, fontSize=10, leading=14,
-                         leftIndent=14, bulletIndent=4, wordWrap="CJK"))
-    s.add(ParagraphStyle(name="OrgTitle", parent=s["BodyText"],
-                         textColor=BRAND_PRIMARY, fontName="Helvetica-Bold", fontSize=14, leading=17, alignment=2))
-    s.add(ParagraphStyle(name="OrgTagline", parent=s["BodyText"],
-                         textColor=BRAND_MUTED, fontSize=9, leading=11, alignment=2))
-    return s
 
+    styles = getSampleStyleSheet()
 
-def calculate_company_compliance(resume_text: str, audit_data: dict) -> dict:
-    """
-    Fallback robust parsing compliance evaluation matching corporate 
-    requirements precisely when data isn't supplied directly by the UI view.
-    """
-    if not resume_text:
-        resume_text = ""
-    resume_upper = resume_text.upper()
-    normalized_text = resume_upper.replace("-", "").replace(" ", "").replace("_", "")
-    
-    items = []
+    styles.add(
+        ParagraphStyle(
+            name="H1Brand",
+            parent=styles["Heading1"],
+            fontName="Helvetica-Bold",
+            fontSize=21,
+            leading=24,
+            textColor=BRAND_PRIMARY,
+            spaceAfter=8,
+        )
+    )
 
-    # 1. Profile Photo
-    # 1. Profile Photo
-    has_photo = audit_data.get("has_profile_photo", False)
-    items.append({
-    "check": "Profile photo embedded",
-    "status": "PASS" if has_photo else "FAIL",
-    "note": (
-        "Profile photograph detected."
-        if has_photo
-        else "No verified profile photograph detected."
-            )
-    })
+    styles.add(
+        ParagraphStyle(
+            name="H2Brand",
+            parent=styles["Heading2"],
+            fontName="Helvetica-Bold",
+            fontSize=14,
+            leading=18,
+            textColor=BRAND_PRIMARY,
+            spaceBefore=14,
+            spaceAfter=8,
+        )
+    )
 
-    # 2. Contact details checking
-    items.append({"check": "Email present", "status": "PASS" if "@" in resume_text else "FAIL", "note": "Valid email verified."})
-    items.append({"check": "Phone present", "status": "PASS" if any(c.isdigit() for c in resume_text) else "FAIL", "note": "Contact channel present."})
-    items.append({"check": "LinkedIn profile link", "status": "PASS" if "LINKEDIN" in resume_upper else "FAIL", "note": "Social professional identifier linked."})
-    items.append({"check": "PDF format", "status": "PASS", "note": "Document structured as compliant PDF file."})
-    items.append({"check": "Filename format", "status": "PASS", "note": "File systematically renamed to match corporate standards."})
+    styles.add(
+        ParagraphStyle(
+            name="Body2",
+            parent=styles["BodyText"],
+            fontName="Helvetica",
+            fontSize=10,
+            leading=14,
+            textColor=BRAND_TEXT,
+            wordWrap="CJK",
+        )
+    )
 
-    # 3. Experience & Page Count Policy
-    exp_years = audit_data.get("total_experience_years", 0)
+    styles.add(
+        ParagraphStyle(
+            name="BodySmall",
+            parent=styles["BodyText"],
+            fontName="Helvetica",
+            fontSize=9,
+            leading=12,
+            textColor=BRAND_TEXT,
+            wordWrap="CJK",
+        )
+    )
+
+    styles.add(
+        ParagraphStyle(
+            name="Muted",
+            parent=styles["BodyText"],
+            fontSize=9,
+            leading=12,
+            textColor=BRAND_MUTED,
+        )
+    )
+
+    styles.add(
+        ParagraphStyle(
+            name="Bullet2",
+            parent=styles["BodyText"],
+            leftIndent=14,
+            bulletIndent=6,
+            leading=14,
+            fontSize=10,
+            textColor=BRAND_TEXT,
+            wordWrap="CJK",
+        )
+    )
+
+    styles.add(
+        ParagraphStyle(
+            name="TableHeader",
+            parent=styles["BodyText"],
+            fontName="Helvetica-Bold",
+            fontSize=10,
+            textColor=colors.white,
+            alignment=1,
+        )
+    )
+
+    styles.add(
+        ParagraphStyle(
+            name="OrgTitle",
+            parent=styles["BodyText"],
+            fontName="Helvetica-Bold",
+            fontSize=15,
+            textColor=BRAND_PRIMARY,
+            alignment=2,
+        )
+    )
+
+    styles.add(
+        ParagraphStyle(
+            name="OrgTagline",
+            parent=styles["BodyText"],
+            fontSize=9,
+            textColor=BRAND_MUTED,
+            alignment=2,
+        )
+    )
+
+    return styles
+
+# ---------------------------------------------------------
+# DOCUMENT BUILDER 
+# ---------------------------------------------------------
+
+def _doc(buffer, title):
+
+    return SimpleDocTemplate(
+        buffer,
+        pagesize=A4,
+        title=title,
+        leftMargin=1.8 * cm,
+        rightMargin=1.8 * cm,
+        topMargin=1.6 * cm,
+        bottomMargin=1.8 * cm,
+    )
+# ---------------------------------------------------------
+# LOGO
+# ---------------------------------------------------------
+
+def _logo_image(width_cm=3.4, height_cm=1.3):
+
+    if not LOGO_PATH:
+        return None
+
+    if not os.path.exists(LOGO_PATH):
+        return None
+
     try:
-        exp_years = float(exp_years)
+        return Image(
+            LOGO_PATH,
+            width=width_cm * cm,
+            height=height_cm * cm,
+            kind="proportional",
+        )
     except Exception:
-        exp_years = 0
-    items.append({
-        "check": "Page count matches policy",
-        "status": "PASS",
-        "note": f"Document length tailored perfectly for an audit history profile matching {exp_years} years of experience."
-    })
-
-    # 4. Key skills present
-    target_skills = ["AZURE", "ADF", "SQL", "PYTHON", "PYSPARK", "DATABRICKS"]
-    found_skills = [s for s in target_skills if s in normalized_text]
-    skills_passed = len(found_skills) >= 3 or bool(audit_data.get("skills", {}).get("matched"))
-    items.append({
-        "check": "Key skills present (Azure/ADF/SQL/Python/PySpark/Databricks)",
-        "status": "PASS" if skills_passed else "FAIL",
-        "note": f"Found matching stack alignment: {', '.join(found_skills) if found_skills else 'Verified via AI Analysis'}"
-    })
-
-    # 5. Certifications verification 
-    cert_regex = r"(DP[- ]?900|DP[- ]?700|DATABRICKS)"
-    cert_passed = bool(re.search(cert_regex, resume_upper)) or len(found_skills) > 4
-    items.append({
-        "check": "Certifications listed (DP-900/DP-700/Databricks)",
-        "status": "PASS" if cert_passed else "FAIL",
-        "note": "Cloud target engineering certifications recognized and validated."
-    })
-
-    passed_count = sum(1 for i in items if i["status"] == "PASS")
-    total_count = len(items)
-    score_pct = int((passed_count / total_count) * 100)
-
-    return {
-        "passed": passed_count,
-        "total": total_count,
-        "score": score_pct,
-        "items": items
-    }
+        return None
 
 
-def _logo_image(max_w_cm=3.5, max_h_cm=1.5):
-    if LOGO_PATH and os.path.exists(LOGO_PATH):
-        try:
-            return Image(LOGO_PATH, width=max_w_cm * cm, height=max_h_cm * cm, kind="proportional")
-        except Exception:
-            return None
-    return None
-
+# ---------------------------------------------------------
+# HEADER
+# ---------------------------------------------------------
 
 def _branded_header(styles, title, subtitle=""):
+
     logo = _logo_image()
+
     left = logo if logo else Paragraph("", styles["Body2"])
+
     right = [
         Paragraph(f"<b>{ORG_NAME}</b>", styles["OrgTitle"]),
         Paragraph(ORG_TAGLINE, styles["OrgTagline"]),
     ]
-    header_tbl = Table([[left, right]], colWidths=[8.5 * cm, 8.9 * cm])
-    header_tbl.setStyle(TableStyle([
-        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("LINEBELOW", (0, 0), (-1, -1), 1.2, BRAND_PRIMARY),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
-    ]))
+
+    tbl = Table(
+        [[left, right]],
+        colWidths=[8.5 * cm, 8.9 * cm],
+    )
+
+    tbl.setStyle(
+        TableStyle(
+            [
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("LINEBELOW", (0, 0), (-1, -1), 1.3, BRAND_PRIMARY),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+            ]
+        )
+    )
+
     return [
-        header_tbl,
-        Spacer(1, 0.35 * cm),
+        tbl,
+        Spacer(1, 0.30 * cm),
         Paragraph(title, styles["H1Brand"]),
-        Paragraph(subtitle or f"Generated on {datetime.now().strftime('%d %b %Y, %H:%M')}", styles["Muted"]),
-        Spacer(1, 0.4 * cm),
+        Paragraph(
+            subtitle
+            or datetime.now().strftime(
+                "Generated on %d %b %Y %H:%M"
+            ),
+            styles["Muted"],
+        ),
+        Spacer(1, 0.55 * cm),
     ]
 
 
+# ---------------------------------------------------------
+# SAFE PARAGRAPH     "from xml.sax.saxutils import escape"
+# ---------------------------------------------------------
+
+from xml.sax.saxutils import escape
+
 def _P(text, styles, style="Body2"):
+    """
+    Safely render ReportLab Paragraphs.
+    Supports <b>, <br/> while escaping invalid XML characters.
+    """
+
     if text is None:
         return Paragraph("—", styles[style])
-    t_str = str(text).strip()
-    if not t_str:
+
+    text = str(text).strip()
+
+    if text == "":
         return Paragraph("—", styles[style])
-    
-    t_str = t_str.replace("\n", "<br/>")
-    if "&" in t_str:
-        t_str = t_str.replace("&", "&amp;").replace("&amp;amp;", "&amp;").replace("&amp;lt;", "&lt;").replace("&amp;gt;", "&gt;")
-        
-    return Paragraph(t_str, styles[style])
+
+    # Keep line breaks
+    text = text.replace("\r\n", "\n")
+    text = text.replace("\n", "<br/>")
+
+    # Preserve supported tags
+    text = text.replace("<b>", "__BOLD_START__")
+    text = text.replace("</b>", "__BOLD_END__")
+    text = text.replace("<br/>", "__BR__")
+
+    # Escape XML characters
+    text = escape(text)
+
+    # Restore formatting tags
+    text = text.replace("__BOLD_START__", "<b>")
+    text = text.replace("__BOLD_END__", "</b>")
+    text = text.replace("__BR__", "<br/>")
+
+    return Paragraph(text, styles[style])
 
 
-def _kv_table(rows, styles):
-    data = [[_P(f"<b>{k}</b>", styles), _P(v, styles)] for k, v in rows]
-    t = Table(data, colWidths=[5.0 * cm, 12.4 * cm])
-    t.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (0, -1), BRAND_LIGHT),
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
-        ("TOPPADDING", (0, 0), (-1, -1), 8),
-        ("LEFTPADDING", (0, 0), (-1, -1), 8),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
-        ("LINEBELOW", (0, 0), (-1, -1), 0.5, colors.HexColor("#E2E8F0")),
-    ]))
-    return t
-
+# ---------------------------------------------------------
+# BULLETS
+# ---------------------------------------------------------
 
 def _bullets(items, styles):
-    out = []
-    for it in (items or []):
-        if it:
-            it_str = str(it).replace("&", "&amp;").replace("&amp;amp;", "&amp;")
-            out.append(Paragraph(f"• {it_str}", styles["Bullet2"]))
-    if not out:
-        out.append(Paragraph("—", styles["Body2"]))
-    return out
+
+    if not items:
+        return [Paragraph("—", styles["Body2"])]
+
+    flowables = []
+
+    for item in items:
+
+        if not item:
+            continue
+
+        flowables.append(
+
+            Paragraph(
+
+                f"• {escape(str(item))}",
+
+                styles["Bullet2"]
+
+            )
+
+        )
+
+    return flowables
 
 
-def _checklist_table(items, styles):
-    header = [Paragraph("<b>Company Checkpoint Guidelines</b>", styles["TableHeader"]), 
-              Paragraph("<b>Status</b>", styles["TableHeader"]), 
-              Paragraph("<b>Evaluation Note</b>", styles["TableHeader"])]
-    rows = [header]
-    for it in items:
-        # Flexible key resolver prevents structural crashes or data skips
-        check_title = it.get("check") or it.get("item") or it.get("requirement") or "—"
-        check_title = str(check_title).replace("\n", " ").strip()
-        
-        status_raw = str(it.get("status") or it.get("passed") or "").upper()
-        is_passed = "PASS" in status_raw or status_raw == "TRUE" or it.get("passed") is True
-        
-        status_label = "PASS" if is_passed else "FAIL"
-        status_color = BRAND_ACCENT if is_passed else BRAND_DANGER
-        
-        note_text = it.get("note") or it.get("comment") or "—"
-        
-        rows.append([
-            _P(check_title, styles),
-            Paragraph(f"<font color='{status_color.hexval()}'><b>{status_label}</b></font>", styles["Body2"]),
-            _P(note_text, styles, "Body2Small"),
+# ---------------------------------------------------------
+# KEY VALUE TABLE
+# ---------------------------------------------------------
+
+def _kv_table(rows, styles):
+
+    data = []
+
+    for k, v in rows:
+
+        data.append([
+            Paragraph(f"<b>{k}</b>", styles["Body2"]),
+            _P(v, styles)
         ])
-    t = Table(rows, colWidths=[7.2 * cm, 2.0 * cm, 8.2 * cm])
-    t.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), BRAND_PRIMARY),
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
-        ("TOPPADDING", (0, 0), (-1, -1), 8),
-        ("LEFTPADDING", (0, 0), (-1, -1), 8),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
-        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, BRAND_LIGHT]),
-        ("LINEBELOW", (0, 0), (-1, -1), 0.5, colors.HexColor("#E2E8F0")),
-    ]))
-    return t
 
-
-def _doc(buf, title):
-    return SimpleDocTemplate(
-        buf, pagesize=A4,
-        leftMargin=1.8 * cm, rightMargin=1.8 * cm,
-        topMargin=1.6 * cm, bottomMargin=1.8 * cm,
-        title=title,
+    table = Table(
+        data,
+        colWidths=[5 * cm, 12.2 * cm]
     )
 
+    table.setStyle(TableStyle([
+
+        ("BACKGROUND", (0,0), (0,-1), BRAND_LIGHT),
+
+        ("TEXTCOLOR", (0,0), (-1,-1), BRAND_TEXT),
+
+        ("VALIGN", (0,0), (-1,-1), "TOP"),
+
+        ("BOTTOMPADDING", (0,0), (-1,-1), 8),
+
+        ("TOPPADDING", (0,0), (-1,-1), 8),
+
+        ("LEFTPADDING", (0,0), (-1,-1), 10),
+
+        ("RIGHTPADDING", (0,0), (-1,-1), 10),
+
+        ("LINEBELOW", (0,0), (-1,-1), 0.35, BRAND_BORDER),
+
+    ]))
+
+    return table
+
+
+# ---------------------------------------------------------
+# COMPLIANCE TABLE
+# ---------------------------------------------------------
+
+def _checklist_table(items, styles):
+
+    rows = [
+
+        [
+
+            Paragraph("<b>Company Guideline</b>", styles["TableHeader"]),
+
+            Paragraph("<b>Status</b>", styles["TableHeader"]),
+
+            Paragraph("<b>Remarks</b>", styles["TableHeader"]),
+
+        ]
+
+    ]
+
+    for item in items:
+
+        title = (
+            item.get("check")
+            or item.get("section")
+            or item.get("item")
+            or item.get("requirement")
+            or "—"
+        )
+
+        passed = (
+            item.get("passed") is True
+            or str(item.get("status", "")).upper() == "PASS"
+            or "PASS" in str(item.get("status", "")).upper()
+        )
+
+        label = "PASS" if passed else "FAIL"
+
+        colour = BRAND_ACCENT if passed else BRAND_DANGER
+
+        note = (
+            item.get("note")
+            or item.get("comment")
+            or item.get("remarks")
+            or "—"
+        )
+
+        ##rows.append([
+        #    _P(title, styles),
+        #    Paragraph(
+        #        f"<font color='{colour.hexval()}'><b>{label}</b></font>",
+         #       styles["Body2"],
+        #    ),
+        #    _P(note, styles, "Body2Small"),
+        #])
+        rows.append(
+
+            [
+
+                _P(title, styles),
+
+                Paragraph(
+
+                    f"<font color='{colour.hexval()}'><b>{label}</b></font>",
+
+                    styles["Body2"],
+
+                ),
+
+                _P(note, styles, "BodySmall"),
+
+            ]
+
+        )
+
+    tbl = Table(
+
+        rows,
+
+        colWidths=[7.2 * cm, 2.1 * cm, 8.0 * cm],
+
+    )
+
+    tbl.setStyle(
+
+        TableStyle(
+
+            [
+
+                ("BACKGROUND", (0, 0), (-1, 0), BRAND_PRIMARY),
+
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+
+                ("ROWBACKGROUNDS",
+
+                 (0, 1),
+
+                 (-1, -1),
+
+                 [colors.white, BRAND_LIGHT]),
+
+                ("GRID",
+
+                 (0, 0),
+
+                 (-1, -1),
+
+                 0.3,
+
+                 BRAND_BORDER),
+
+                ("BOTTOMPADDING",
+
+                 (0, 0),
+
+                 (-1, -1),
+
+                 7),
+
+                ("TOPPADDING",
+
+                 (0, 0),
+
+                 (-1, -1),
+
+                 7),
+
+                ("VALIGN",
+
+                 (0, 0),
+
+                 (-1, -1),
+
+                 "TOP"),
+
+            ]
+
+        )
+
+    )
+
+    return tbl
+
+
+# ---------------------------------------------------------
+# COMPANY COMPLIANCE
+# ---------------------------------------------------------
+
+def calculate_company_compliance(
+    resume_text,
+    audit_data,
+):
+
+    resume_text = resume_text or ""
+
+    upper = resume_text.upper()
+
+    normalized = (
+
+        upper
+
+        .replace("-", "")
+
+        .replace("_", "")
+
+        .replace(" ", "")
+
+    )
+
+    checks = []
+
+    def add(name, passed, note):
+
+        checks.append(
+
+            {
+
+                "check": name,
+
+                "status": "PASS" if passed else "FAIL",
+
+                "note": note,
+
+            }
+
+        )
+
+    add(
+
+        "Profile Photo",
+
+        audit_data.get("has_profile_photo", False),
+
+        "Professional photograph verification",
+
+    )
+
+    add(
+
+        "Email",
+
+        "@" in resume_text,
+
+        "Email address detected",
+
+    )
+
+    add(
+
+        "Phone",
+
+        bool(re.search(r"\d{10}", resume_text)),
+
+        "Phone number detected",
+
+    )
+
+    add(
+
+        "LinkedIn",
+
+        "LINKEDIN" in upper,
+
+        "LinkedIn profile available",
+
+    )
+
+    add(
+
+        "Azure Skills",
+
+        any(
+
+            x in normalized
+
+            for x in [
+
+                "AZURE",
+
+                "ADF",
+
+                "PYTHON",
+
+                "PYSPARK",
+
+                "SQL",
+
+                "DATABRICKS",
+
+            ]
+
+        ),
+
+        "Azure Data Engineering stack detected",
+
+    )
+
+    add(
+
+        "Certification",
+
+        bool(
+
+            re.search(
+
+                r"(DP[- ]?900|DP[- ]?700|DATABRICKS)",
+
+                upper,
+
+            )
+
+        ),
+
+        "Relevant certification check",
+
+    )
+
+    passed = sum(
+
+        x["status"] == "PASS"
+
+        for x in checks
+
+    )
+
+    total = len(checks)
+
+    score = int((passed / total) * 100)
+
+    return {
+
+        "passed": passed,
+
+        "total": total,
+
+        "score": score,
+
+        "items": checks,
+
+    }
+#----------------------------------------------------------
+#Single PDF Builder Function
+#---------------------------------------------------------
 
 def build_single_pdf(audit, chart_pngs, resume_text="", format_check=None):
     buf = io.BytesIO()
@@ -332,8 +798,8 @@ def build_single_pdf(audit, chart_pngs, resume_text="", format_check=None):
     story.append(Spacer(1, 0.4 * cm))
 
     if chart_pngs.get("gauge") and chart_pngs.get("radar"):
-        row = Table([[Image(io.BytesIO(chart_pngs["gauge"]), width=7.8 * cm, height=4.9 * cm),
-                      Image(io.BytesIO(chart_pngs["radar"]), width=7.8 * cm, height=4.9 * cm)]],
+        row = Table([[Image(io.BytesIO(chart_pngs["gauge"]), width=8.0 * cm, height=5.2 * cm),
+                      Image(io.BytesIO(chart_pngs["radar"]), width=8.0 * cm, height=5.2 * cm)]],
                     colWidths=[8.7 * cm, 8.7 * cm])
         row.setStyle(TableStyle([
             ("ALIGN", (0, 0), (0, 0), "RIGHT"),
@@ -347,7 +813,21 @@ def build_single_pdf(audit, chart_pngs, resume_text="", format_check=None):
     story.append(Paragraph(f"Company Guidelines Format Compliance — {passed}/{total} Requirements Met ({score}%)", styles["H2Brand"]))
     story.append(_checklist_table(extracted_items, styles))
     story.append(Spacer(1, 0.4 * cm))
+   # story.append(Spacer(1, 0.4 * cm))
 
+    story.append(
+        Table(
+            [[""]],
+            colWidths=[17.2 * cm],
+            style=[
+                ("LINEABOVE", (0,0), (-1,-1), 0.5, BRAND_BORDER)
+            ]
+        )
+    )
+
+    story.append(
+        Spacer(1, 0.25 * cm)
+    )
     skills = audit.get("skills") or {}
     story.append(Paragraph("Skillset & Keyword Analysis", styles["H2Brand"]))
     skill_data = [
@@ -383,92 +863,509 @@ def build_single_pdf(audit, chart_pngs, resume_text="", format_check=None):
     doc.build(story, canvasmaker=NumberedCanvas)
     return buf.getvalue()
 
+# ==========================================================
+# BULK PDF BUILDER
+# ==========================================================
 
-#def build_bulk_pdf(audits, chart_pngs, resume_texts=None) -> dict[str, bytes]: changed on 12062026
-def build_bulk_pdf(audits,chart_pngs,resume_texts=None,format_checks=None) -> dict[str, bytes]:    
-    pdf_output_collection = {}
-    styles = _styles()
-    resume_texts = resume_texts or [""] * len(audits)
+def build_bulk_pdf(
+    audits,
+    pngs=None,
+    resume_texts=None,
+    format_checks=None,
+) -> dict[str, bytes]:
 
-    summary_buf = io.BytesIO()
-    summary_doc = _doc(summary_buf, "Bulk Overview Analytics Master Summary")
-    summary_story = []
-    
-    summary_story += _branded_header(
-        styles, "Bulk Resume Audit Summary Report",
-        f"{len(audits)} Candidates Tracked · Generated Summary"
-    )
-
-    header = [Paragraph(f"<b>{h}</b>", styles["TableHeader"]) for h in ["#", "Candidate Name", "Overall", "JD Match", "Exp", "Quality", "Verdict"]]
-    rows = [header]
-    paired = sorted(zip(audits, resume_texts), key=lambda p: p[0].get("overall_score", 0), reverse=True)
-    
-    for i, (a, _) in enumerate(paired, 1):
-        rows.append([
-            _P(str(i), styles),
-            _P(a.get("candidate_name", "—"), styles),
-            _P(a.get("overall_score", 0), styles),
-            _P(a.get("jd_match_score", 0), styles),
-            _P(a.get("experience_score", 0), styles),
-            _P(a.get("quality_score", 0), styles),
-            _P(a.get("verdict", "—"), styles, "Body2Small"),
-        ])
-        
-    summary_table = Table(rows, colWidths=[1.0 * cm, 5.5 * cm, 1.7 * cm, 1.3 * cm, 1.3 * cm, 1.7 * cm, 4.9 * cm])
-    summary_table.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), BRAND_PRIMARY),
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("ALIGN", (2, 1), (5, -1), "CENTER"),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
-        ("TOPPADDING", (0, 0), (-1, -1), 6),
-        ("LEFTPADDING", (0, 0), (-1, -1), 6),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
-        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, BRAND_LIGHT]),
-        ("LINEBELOW", (0, 0), (-1, -1), 0.5, colors.HexColor("#E2E8F0")),
-    ]))
-    summary_story.append(summary_table)
-    summary_doc.build(summary_story, canvasmaker=NumberedCanvas)
-    pdf_output_collection["SUMMARY_OVERVIEW"] = summary_buf.getvalue()
-
+    import io
+    import re
     import charts
 
-    for idx, (a, r_text) in enumerate(paired):
+    pdf_files = {}
 
-                candidate_name = (
-                a.get("candidate_name", "Unknown_Candidate")
-                .strip()
-                .replace(" ", "_")
-            )
+    styles = _styles()
 
-    indiv_charts = {}
+    # ------------------------------------------------------
+    # Backward compatibility
+    # ------------------------------------------------------
+    if isinstance(pngs, list):
+        resume_texts = pngs
+        pngs = None
 
-    try:
-        indiv_charts["gauge"] = charts.fig_to_png_bytes(
-            charts.gauge(a.get("overall_score", 0))
-        )
+    if resume_texts is None:
+        resume_texts = [
+            a.get("_resume_text", "")
+            for a in audits
+        ]
 
-        indiv_charts["radar"] = charts.fig_to_png_bytes(
-            charts.radar({
-                "ATS": a.get("ats_score", 0),
-                "Quality": a.get("quality_score", 0),
-                "JD Match": a.get("jd_match_score", 0),
-                "Experience": a.get("experience_score", 0),
-                "Overall": a.get("overall_score", 0),
-            })
-        )
-    except Exception:
-        indiv_charts = {}
+    if format_checks is None:
+        format_checks = [
+            a.get("_format_check")
+            for a in audits
+        ]
 
-    candidate_format_check = None
+    # ------------------------------------------------------
+    # SORT
+    # ------------------------------------------------------
 
-    if format_checks and idx < len(format_checks):
-        candidate_format_check = format_checks[idx]
-
-    pdf_output_collection[candidate_name] = build_single_pdf(
-        a,
-        indiv_charts,
-        resume_text=r_text,
-        format_check=candidate_format_check
+    candidates = sorted(
+        zip(audits, resume_texts, format_checks),
+        key=lambda x: x[0].get("overall_score", 0),
+        reverse=True,
     )
 
-    return pdf_output_collection
+    # ------------------------------------------------------
+    # SUMMARY PDF
+    # ------------------------------------------------------
+
+    summary_buffer = io.BytesIO()
+    pdf_files = {}
+    summary_doc = _doc(
+        summary_buffer,
+        "Bulk Resume Audit Summary",
+    )
+
+    story = []
+
+    story += _branded_header(
+        styles,
+        "Bulk Resume Audit Summary",
+        f"{len(candidates)} Candidates Evaluated",
+    )
+
+    overall_scores = [
+        a.get("overall_score", 0)
+        for a, _, _ in candidates
+    ]
+
+    avg_score = round(sum(overall_scores) / len(overall_scores), 1) if overall_scores else 0
+    top_score = max(overall_scores) if overall_scores else 0
+    strong_candidates = sum(score >= 75 for score in overall_scores)
+
+    story.append(
+        _kv_table(
+            [
+                ("Candidates Evaluated", len(candidates)),
+                ("Average Overall Score", avg_score),
+                ("Highest Overall Score", top_score),
+                ("Strong Candidates (≥75)", strong_candidates),
+            ],
+            styles,
+        )
+    )
+
+    story.append(Spacer(1, 0.35 * cm))
+
+    headers = [
+        Paragraph("<b>Rank</b>", styles["TableHeader"]),
+        Paragraph("<b>Candidate</b>", styles["TableHeader"]),
+        Paragraph("<b>Overall</b>", styles["TableHeader"]),
+        Paragraph("<b>ATS</b>", styles["TableHeader"]),
+        Paragraph("<b>JD</b>", styles["TableHeader"]),
+        Paragraph("<b>Experience</b>", styles["TableHeader"]),
+        Paragraph("<b>Quality</b>", styles["TableHeader"]),
+        Paragraph("<b>Verdict</b>", styles["TableHeader"]),
+    ]
+
+    table_data = [headers]
+
+    for rank, (audit, _, _) in enumerate(candidates, start=1):
+
+        table_data.append([
+            _P(rank, styles),
+            _P(audit.get("candidate_name", "-"), styles),
+            _P(audit.get("overall_score", 0), styles),
+            _P(audit.get("ats_score", 0), styles),
+            _P(audit.get("jd_match_score", 0), styles),
+            _P(audit.get("experience_score", 0), styles),
+            _P(audit.get("quality_score", 0), styles),
+            _P(audit.get("verdict", ""), styles, "BodySmall"),
+        ])
+
+    table = Table(
+        table_data,
+        colWidths=[
+            1 * cm,
+            5 * cm,
+            1.5 * cm,
+            1.5 * cm,
+            1.5 * cm,
+            1.8 * cm,
+            1.8 * cm,
+            4 * cm,
+        ],
+    )
+
+    table.setStyle(
+        TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), BRAND_PRIMARY),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("GRID", (0, 0), (-1, -1), 0.3, BRAND_BORDER),
+            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, BRAND_LIGHT]),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+            ("TOPPADDING", (0, 0), (-1, -1), 6),
+        ])
+    )
+
+    story.append(table)
+
+    summary_doc.build(
+        story,
+        canvasmaker=NumberedCanvas,
+    )
+
+    pdf_files["SUMMARY_OVERVIEW"] = summary_buffer.getvalue()
+# ------------------------------------------------------
+# INDIVIDUAL REPORTS
+# ------------------------------------------------------
+
+    for idx, (audit, resume_text, format_check) in enumerate(candidates, start=1):
+
+        candidate = re.sub(
+            r"[^A-Za-z0-9_-]",
+            "",
+            audit.get("candidate_name", "Candidate").replace(" ", "_"),
+        )
+
+        charts_png = {}
+
+        try:
+            charts_png["gauge"] = charts.fig_to_png_bytes(
+                charts.gauge(audit.get("overall_score", 0))
+            )
+        except Exception:
+            pass
+
+        try:
+            charts_png["radar"] = charts.fig_to_png_bytes(
+                charts.radar({
+                    "Overall": audit.get("overall_score", 0),
+                    "ATS": audit.get("ats_score", 0),
+                    "JD Match": audit.get("jd_match_score", 0),
+                    "Experience": audit.get("experience_score", 0),
+                    "Quality": audit.get("quality_score", 0),
+                })
+            )
+        except Exception:
+            pass
+
+        try:
+            filename = f"{idx}_{candidate}_Report.pdf"
+
+            pdf_files[filename] = build_single_pdf(
+                audit=audit,
+                chart_pngs=charts_png,
+                resume_text=resume_text,
+                format_check=format_check,
+            )
+
+        except Exception as e:
+            print("=" * 80)
+            print("FAILED FOR:", candidate)
+            print(e)
+            print("=" * 80)
+
+    return pdf_files
+# ==========================================================
+# COMPARE PDF BUILDER
+# ==========================================================
+
+def build_compare_pdf(compare_result, pngs=None, format_checks=None):
+    """
+    Generate PDF report for Resume Comparison.
+    Returns PDF bytes.
+    """
+
+    import io
+    from reportlab.lib.units import cm
+    from reportlab.platypus import (
+        SimpleDocTemplate,
+        Paragraph,
+        Spacer,
+        Table,
+        TableStyle,
+    )
+    from reportlab.lib import colors
+    pdf_files = {}
+    buffer = io.BytesIO()
+
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=A4,
+        leftMargin=1.5 * cm,
+        rightMargin=1.5 * cm,
+        topMargin=1.5 * cm,
+        bottomMargin=1.5 * cm,
+    )
+
+    styles = _styles()
+    story = []
+
+    # ------------------------------------------------------
+    # TITLE
+    # ------------------------------------------------------
+    #story.append(
+     #   Paragraph(
+   #         "Resume Comparison Report",
+            #styles["TitleBrand"],
+   #         styles["H1Brand"],
+    #    )
+  #  )
+    #story.append(Spacer(1, 0.5 * cm))
+
+    # ------------------------------------------------------
+    # WINNER
+    # ------------------------------------------------------
+    story.append(
+        Paragraph(
+            "Final Recommendation",
+            styles["H2Brand"],
+        )
+    )
+
+    story.append(
+        _kv_table(
+            [
+                (
+                    "Selected Candidate",
+                    compare_result.get("winner", "-"),
+                ),
+                (
+                    "Selection Reason",
+                    compare_result.get("why_winner", "-"),
+                ),
+            ],
+            styles,
+        )
+    )
+
+    story.append(Spacer(1, 0.4 * cm))
+
+    # ------------------------------------------------------
+    # RANKING TABLE
+    # ------------------------------------------------------
+    story.append(
+        Paragraph(
+            "Candidate Ranking",
+            styles["H2Brand"],
+        )
+    )
+
+    header = [
+        Paragraph("<b>Rank</b>", styles["TableHeader"]),
+        Paragraph("<b>Candidate</b>", styles["TableHeader"]),
+        Paragraph("<b>Overall</b>", styles["TableHeader"]),
+        Paragraph("<b>JD Match</b>", styles["TableHeader"]),
+        Paragraph("<b>Experience</b>", styles["TableHeader"]),
+        Paragraph("<b>Quality</b>", styles["TableHeader"]),
+        Paragraph("<b>Verdict</b>", styles["TableHeader"]),
+    ]
+
+    rows = [header]
+
+    ranking = compare_result.get("ranking", [])
+
+    for row in ranking:
+        rows.append(
+            [
+                _P(row.get("rank", ""), styles),
+                _P(row.get("candidate_name", ""), styles),
+                _P(row.get("overall_score", 0), styles),
+                _P(row.get("jd_match_score", 0), styles),
+                _P(row.get("experience_score", 0), styles),
+                _P(row.get("quality_score", 0), styles),
+                _P(row.get("verdict", ""), styles, "BodySmall"),
+            ]
+        )
+
+    table = Table(
+        rows,
+        colWidths=[
+            1.2 * cm,
+            5.2 * cm,
+            1.8 * cm,
+            1.8 * cm,
+            1.8 * cm,
+            1.8 * cm,
+            4.0 * cm,
+        ],
+    )
+
+    table.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, 0), BRAND_PRIMARY),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                ("GRID", (0, 0), (-1, -1), 0.3, BRAND_BORDER),
+                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, BRAND_LIGHT]),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+                ("TOPPADDING", (0, 0), (-1, -1), 6),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ]
+        )
+    )
+
+    story.append(table)
+    story.append(Spacer(1, 0.5 * cm))
+
+    # ------------------------------------------------------
+    # CHARTS (Optional)
+    # ------------------------------------------------------
+    if pngs:
+        if pngs.get("bar"):
+            story.append(Paragraph("Metric Comparison", styles["H2Brand"]))
+            story.append(_img_from_bytes(pngs["bar"], width=17 * cm))
+            story.append(Spacer(1, 0.3 * cm))
+
+        if pngs.get("ranking"):
+            story.append(Paragraph("Ranking Chart", styles["H2Brand"]))
+            story.append(_img_from_bytes(pngs["ranking"], width=17 * cm))
+            story.append(Spacer(1, 0.5 * cm))
+
+    # ------------------------------------------------------
+    # INDIVIDUAL ANALYSIS
+    # ------------------------------------------------------
+    for row in ranking:
+
+        story.append(
+            Paragraph(
+                row.get("candidate_name", ""),
+                styles["H2Brand"],
+            )
+        )
+
+        story.append(
+            _kv_table(
+                [
+                    ("Overall Score", f"{row.get('overall_score',0)}/100"),
+                    ("JD Match", f"{row.get('jd_match_score',0)}/100"),
+                    ("Experience", f"{row.get('experience_score',0)}/100"),
+                    ("Quality", f"{row.get('quality_score',0)}/100"),
+                    ("Verdict", row.get("verdict", "")),
+                ],
+                styles,
+            )
+        )
+
+        story.append(Spacer(1, 0.2 * cm))
+
+        story.append(
+            Paragraph(
+                "<b>Key Strengths</b>",
+                styles["BodySmall"],
+            )
+        )
+
+        story.extend(
+            _bullets(
+                row.get("key_strengths", []),
+                styles,
+            )
+        )
+
+        story.append(Spacer(1, 0.15 * cm))
+
+        story.append(
+            Paragraph(
+                "<b>Key Gaps</b>",
+                styles["BodySmall"],
+            )
+        )
+
+        story.extend(
+            _bullets(
+                row.get("key_gaps", []),
+                styles,
+            )
+        )
+
+        story.append(Spacer(1, 0.35 * cm))
+
+    # ------------------------------------------------------
+    # SUMMARY
+    # ------------------------------------------------------
+    story.append(
+        Paragraph(
+            "Comparison Summary",
+            styles["H2Brand"],
+        )
+    )
+
+    story.append(
+        _P(
+            compare_result.get(
+                "comparison_summary",
+                "",
+            ),
+            styles,
+        )
+    )
+
+    doc.build(
+    story,
+    canvasmaker=NumberedCanvas,
+    )
+
+    pdf_files["COMPARE_SUMMARY"] = buffer.getvalue()
+
+    buffer.close()
+    
+    # ------------------------------------------------------
+    # INDIVIDUAL CANDIDATE REPORTS
+    # ------------------------------------------------------
+
+    import re
+    import charts
+
+    ranking = compare_result.get("ranking", [])
+    for candidate in ranking:
+
+            audit = candidate.get("_audit")
+
+            if not audit:
+                continue
+
+            chart_pngs = {}
+
+            try:
+                chart_pngs["gauge"] = charts.fig_to_png_bytes(
+                    charts.gauge(
+                        audit.get("overall_score", 0)
+                    )
+                )
+            except Exception:
+                pass
+
+            try:
+                chart_pngs["radar"] = charts.fig_to_png_bytes(
+                    charts.radar({
+                        "Overall": audit.get("overall_score", 0),
+                        "ATS": audit.get("ats_score", 0),
+                        "JD Match": audit.get("jd_match_score", 0),
+                        "Experience": audit.get("experience_score", 0),
+                        "Quality": audit.get("quality_score", 0),
+                    })
+                )
+            except Exception:
+                pass
+
+            candidate_name = re.sub(
+                r"[^A-Za-z0-9_-]",
+                "",
+                audit.get("candidate_name", "Candidate").replace(" ", "_"),
+            )
+
+            try:
+
+                pdf_files[f"{candidate_name}_Report.pdf"] = build_single_pdf(
+                    audit=audit,
+                    chart_pngs=chart_pngs,
+                    resume_text=candidate.get("_resume_text", ""),
+                    format_check=candidate.get("_format_check"),
+                )
+
+            except Exception as e:
+
+                print("=" * 80)
+                print("COMPARE PDF FAILED:", candidate_name)
+                print(e)
+                print("=" * 80)
+    return pdf_files

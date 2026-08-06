@@ -17,7 +17,7 @@ from modules.llm_audit import audit_resume, compare_resumes
 from modules.checks import build_format_checklist
 from modules import charts
 from modules import pdf_report
-
+from modules.checks import has_profile_photo
 load_dotenv()
 
 ORG_NAME = os.environ.get("ORG_NAME", "Resume Audit")
@@ -50,37 +50,38 @@ header {visibility: hidden; display: none;}
 """
 st.markdown(HIDE_STREAMLIT_HEADER, unsafe_allow_html=True)
 #-----------------------------Photo Function---------------------------------------------------------------
-def detect_profile_photo_pdf(file_bytes):
-    try:
-        import fitz  # PyMuPDF
+#def detect_profile_photo_pdf(file_bytes):
+    #try:
+    #    import fitz  # PyMuPDF
 
-        doc = fitz.open(stream=file_bytes, filetype="pdf")
+    #    doc = fitz.open(stream=file_bytes, filetype="pdf")
 
-        if len(doc) == 0:
-            return False
+    #    if len(doc) == 0:
+     #       return False
 
-        page = doc[0]
+    #    page = doc[0]
 
-        for img in page.get_images(full=True):
-            xref = img[0]
-            image = doc.extract_image(xref)
+      #  for img in page.get_images(full=True):
+     #       xref = img[0]
+     #       image = doc.extract_image(xref)
 
-            width = image.get("width", 0)
-            height = image.get("height", 0)
+    #        width = image.get("width", 0)
+     #       height = image.get("height", 0)
 
-            # Ignore tiny icons/logos
-            if (
-                width >= 100
-                and height >= 100
-                and 0.7 <= (width / max(height, 1)) <= 1.4
-            ):
-                return True
+    #        # Ignore tiny icons/logos
+     #       if (
+    #       width >= 100
+     #           and height >= 100
+     #           and 0.7 <= (width / max(height, 1)) <= 1.4
+     #       ):
+      #          return True
 
-        return False
+     #  return False
 
-    except Exception:
-        return False
+   # except Exception:
+  #      return False
 #-----------------------------------    Photo End Function ------------------------------------------------
+
 # ---------------- LOGOUT CONFIRMATION MODAL ----------------
 @st.dialog("Confirm Sign Out")
 def show_logout_dialog():
@@ -676,22 +677,45 @@ if mode == "Single Audit":
 
     if run and file is not None:
         try:
-            with st.spinner("Extracting resume text…"):
-                text = extract_text(file.name, file.getvalue())
-            if not text or len(text) < 50:
-                st.error("Could not extract enough text from this file.")
+            with st.spinner("Extracting resume text..."):
+                        text = extract_text(file.name, file.getvalue())
+
+                        # Normalize extracted text
+                        text = text.strip() if text else ""
+
+                        # Remove excessive whitespace
+                        normalized_text = " ".join(text.split())
+
+                        # Debug (remove later if not needed)
+                        #print("=" * 80)
+                        #print(f"Extracted Characters : {len(text)}")
+                        #print(f"Normalized Characters: {len(normalized_text)}")
+                        #print("=" * 80)
+
+            if len(normalized_text) < 30:
+                            st.error(
+                                "Unable to extract sufficient text from this resume. "
+                                "Please upload a text-based PDF or DOCX."
+                            )
+                            st.stop()
             else:
                 with st.spinner("Auditing with GPT-4o-mini…"):
-                    audit = audit_resume(text, jd or None)
+                    audit = audit_resume(normalized_text, jd or None)
+                #with st.expander("Resume Text Preview (Debug Mode)"): -----------------DEBUG MODE ------------------
+                 #   st.text_area(
+                #    "Extracted Text",
+                 #   normalized_text[:3000], 
+                  #  height=250
+                  #          )        
                 
                 # CRITICAL: file.getvalue() retains full file payload, preserving face recognition & embedded image extraction core metrics
-                fc = build_format_checklist(file.name, file.getvalue(), text, float(audit.get("total_experience_years") or 0))
+                fc = build_format_checklist(file.name,file.getvalue(),normalized_text,float(audit.get("total_experience_years") or 0))
                 
                 # Robust Fallback & Correction Layer for Photo, Email, and LinkedIn links
                 if fc and "items" in fc:
                     import re
-                    normalized_text = "".join(text.split()).lower()
-                    text_lower = text.lower()
+                    compact_text = "".join(normalized_text.split()).lower()
+                    text_lower = normalized_text.lower()
                     file_bytes = file.getvalue()
                     ext = file.name.split(".")[-1].lower()
                     
@@ -700,10 +724,14 @@ if mode == "Single Audit":
                         
                         # Fallback for profile photo validation via binary streams
                         if "photo" in it_name:
-                            has_photo = False
+                            has_photo = has_profile_photo(file.name, file_bytes)
 
-                            if ext == "pdf":
-                                has_photo = detect_profile_photo_pdf(file_bytes)
+                            if has_photo:
+                                it["passed"] = True
+                                it["note"] = "Profile photograph detected."
+                            else:
+                                it["passed"] = False
+                                it["note"] = "No profile photograph detected."
 
                             if has_photo:
                                 it["passed"] = True
@@ -714,13 +742,13 @@ if mode == "Single Audit":
                                 
                         # Fallback for emails ignoring space/case nuances
                         elif "email" in it_name and not it.get("passed"):
-                            if re.search(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', text) or "@" in normalized_text:
+                            if re.search(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', text) or "@" in compact_text :
                                 it["passed"] = True
                                 it["note"] = "Valid email verified."
                         
                         # Fallback for LinkedIn links broken across column line wrappers
                         elif "linkedin" in it_name and not it.get("passed"):
-                            if "linkedin.com" in normalized_text or "linkedin.com" in text_lower:
+                            if "linkedin.com" in compact_text  or "linkedin.com" in text_lower:
                                 it["passed"] = True
                                 it["note"] = "LinkedIn profile presence verified."
 
@@ -789,6 +817,7 @@ elif mode == "Bulk Audit":
                 else:
                     a = audit_resume(txt, jd or None)
                     a["_filename"] = f.name
+                    a["_resume_text"] = txt 
                     
                     # CRITICAL: f.getvalue() retains full file payload, preserving face recognition & embedded image extraction core metrics
                     fc = build_format_checklist(f.name, f.getvalue(), txt, float(a.get("total_experience_years") or 0))
@@ -804,19 +833,37 @@ elif mode == "Bulk Audit":
                         for it in fc["items"]:
                             it_name = it.get("item", "").lower()
                             
-                            if "photo" in it_name:
+                        if "photo" in it_name:
+
+                            has_photo = has_profile_photo(f.name, f_bytes)
+
+                            if has_photo:
+                                it["passed"] = True
+                                it["note"] = "Profile photograph detected."
+                            else:
                                 it["passed"] = False
-                                it["note"] = "No verified profile photograph detected."
-                            
-                            elif "email" in it_name and not it.get("passed"):
-                                if re.search(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', txt) or "@" in normalized_txt:
-                                    it["passed"] = True
-                                    it["note"] = "Valid email verified."
-                            
-                            elif "linkedin" in it_name and not it.get("passed"):
-                                if "linkedin.com" in normalized_txt or "linkedin.com" in txt_lower:
-                                    it["passed"] = True
-                                    it["note"] = "LinkedIn profile presence verified."
+                                it["note"] = "No profile photograph detected."
+
+                        elif "email" in it_name and not it.get("passed"):
+
+                            if (
+                                re.search(
+                                    r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}",
+                                    txt,
+                                )
+                                or "@" in normalized_txt
+                            ):
+                                it["passed"] = True
+                                it["note"] = "Valid email verified."
+
+                        elif "linkedin" in it_name and not it.get("passed"):
+
+                            if (
+                                "linkedin.com" in normalized_txt
+                                or "linkedin.com" in txt_lower
+                            ):
+                                it["passed"] = True
+                                it["note"] = "LinkedIn profile verified."
 
                         # Dynamic Filter: Programmatically eliminate GitHub link check parameters without tweaking core modules
                         fc["items"] = [it for it in fc["items"] if "github" not in it.get("item", "").lower()]
@@ -930,15 +977,62 @@ else:
 
     if run and can_run:
         resumes = []
+
         try:
-            with st.spinner("Extracting resumes…"):
+            with st.spinner("Extracting resumes..."):
+
                 for f in files:
-                    txt = extract_text(f.name, f.getvalue())
-                    resumes.append({"name": f.name.rsplit(".", 1)[0], "text": txt})
-            with st.spinner("Comparing with GPT-4o-mini…"):
+
+                    file_bytes = f.getvalue()
+
+                    txt = extract_text(f.name, file_bytes)
+
+                    if len(txt.strip()) < 50:
+                        st.warning(f"Skipped {f.name}: Could not extract enough text.")
+                        continue
+
+                    audit = audit_resume(txt, jd or None)
+
+                    fc = build_format_checklist(
+                        f.name,
+                        file_bytes,
+                        txt,
+                        float(audit.get("total_experience_years") or 0)
+                    )
+
+                    resumes.append({
+                        "name": f.name.rsplit(".", 1)[0],
+                        "text": txt,
+                        "audit": audit,
+                        "format_check": fc
+                    })
+
+            with st.spinner("Comparing with GPT-4o-mini..."):
+
                 comparison = compare_resumes(resumes, jd or None)
+                comparison["_audits"] = []
+
+                for resume in resumes:
+                    comparison["_audits"].append({
+                        "audit": resume["audit"],
+                        "resume_text": resume["text"],
+                        "format_check": resume["format_check"]
+                    })
+
+                for candidate in comparison.get("ranking", []):
+                    for resume in resumes:
+                        if candidate.get("candidate_name") == resume.get("name"):
+
+                            candidate["_format_check"] = resume["format_check"]
+
+                            candidate["_resume_text"] = resume["text"]
+
+                            candidate["_audit"] = resume["audit"]
+
+                            break
             st.session_state["compare_result"] = comparison
             st.success("Comparison complete.")
+
         except Exception as e:
             st.error(f"Comparison failed: {e}")
 
@@ -990,6 +1084,27 @@ else:
                     st.markdown("**⚠️ Key Gaps**")
                     for s in r.get("key_gaps") or []:
                         st.markdown(f"- {s}")
+                        fc = r.get("_format_check")
+
+        if fc:
+
+            st.markdown("### 📋 Organization Format Compliance")
+
+            st.metric(
+                "Compliance Score",
+                f"{fc['score']}%",
+                f"{fc['passed']}/{fc['total']} Passed"
+            )
+
+            for item in fc["items"]:
+
+                if item["passed"]:
+                    st.success(f"✅ {item['item']}")
+                else:
+                    st.error(f"❌ {item['item']}")
+
+                if item.get("note"):
+                    st.caption(item["note"])
 
         st.markdown("---")
         try:
@@ -997,13 +1112,43 @@ else:
                 "bar": charts.fig_to_png_bytes(charts.bar_compare(df), width=900, height=420),
                 "ranking": charts.fig_to_png_bytes(charts.horizontal_ranking(df), width=900, height=max(360, 60*len(df))),
             }
-            pdf_bytes = pdf_report.build_compare_pdf(comp, pngs)
+            #pdf_bytes = pdf_report.build_compare_pdf(comp)#, pngs)
+            #pdf_bytes = pdf_report.build_compare_pdf(comp,format_checks=[r.get("_format_check") for r in ranking])
+            #st.download_button(
+            #    "📥 Download Comparison PDF",
+            #    data=pdf_bytes,
+            #    file_name=f"Resume_comparison_Report{datetime.now().strftime('%Y%m%d_%H%M')}.pdf",
+            #    mime="application/pdf",
+            #    use_container_width=True,
+            #)
+            reports_dictionary = pdf_report.build_compare_pdf(
+                comp,
+                format_checks=[r.get("_format_check") for r in ranking]
+            )
+
             st.download_button(
-                "📥 Download Comparison PDF",
-                data=pdf_bytes,
-                file_name=f"resume_comparison_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf",
+                "📊 Download Comparison Summary Report",
+                data=reports_dictionary["COMPARE_SUMMARY"],
+                file_name=f"Resume_Comparison_Summary_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf",
                 mime="application/pdf",
                 use_container_width=True,
             )
+
+            st.markdown("#### 📥 Download Individual Candidate Reports")
+
+            for report_name, pdf_data in reports_dictionary.items():
+
+                if report_name == "COMPARE_SUMMARY":
+                    continue
+
+                readable_name = report_name.replace("_", " ")
+
+                st.download_button(
+                    label=f"📄 Download Report — {readable_name}",
+                    data=pdf_data,
+                    file_name=report_name,
+                    mime="application/pdf",
+                    use_container_width=True,
+                )
         except Exception as e:
             st.error(f"PDF render error: {e}")
