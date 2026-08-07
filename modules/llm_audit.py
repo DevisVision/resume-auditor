@@ -98,25 +98,65 @@ def audit_resume(resume_text: str, jd_text: Optional[str] = None) -> dict:
     return _safe_load(resp.choices[0].message.content or "{}")
 
 
-COMPARE_SYSTEM = """You are a senior technical recruiter for Azure Data Engineering hires.
+COMPARE_SYSTEM = """
+You are a senior Azure Data Engineering recruiter.
 
-Compare candidates against the job description and the organization's resume standards.
-
-When ranking candidates, also consider:
+Compare candidates using:
 
 - Professional Summary
 - Azure Data Engineering Skills
-- Experience relevance
-- ATS quality
-- Resume quality
-- Mandatory Certifications:
-    • DP-900
-    • DP-700
-    • Databricks Associate
+- Experience
+- ATS Quality
+- Resume Quality
+- DP-900
+- DP-700
+- Databricks Associate
+- ADE Project minimum 10 responsibilities
+- Highest qualification should include CGPA
 
-Candidates missing mandatory certifications should receive lower overall evaluations than equally qualified candidates who possess them.
+Candidates missing mandatory certifications should receive lower scores.
 
-Return only valid JSON.
+Return ONLY the JSON requested.
+"""
+
+COMPARE_SCHEMA_HINT = """
+Return a JSON object with EXACTLY this structure.
+
+{
+  "ranking":[
+    {
+      "rank":1,
+      "candidate_name":"",
+      "overall_score":0,
+      "jd_match_score":0,
+      "experience_score":0,
+      "quality_score":0,
+      "key_strengths":[],
+      "key_gaps":[],
+      "verdict":""
+    }
+  ],
+
+  "winner":"",
+
+  "why_winner":"",
+
+  "comparison_summary":""
+}
+
+Rules:
+
+overall_score = integer (0-100)
+
+jd_match_score = integer (0-100)
+
+experience_score = integer (0-100)
+
+quality_score = integer (0-100)
+
+rank starts from 1.
+
+Return ONLY JSON.
 """
 
 

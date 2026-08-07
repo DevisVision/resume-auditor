@@ -271,6 +271,32 @@ if not st.session_state.logged_in:
             st.error("Invalid Username or Password")
     st.stop()
 
+# =========================================================
+# BACK TO TOP FUNCTION
+# =========================================================
+
+def back_to_top():
+    st.markdown(
+        """
+        <div style="text-align: center; margin: 30px 0 15px 0;">
+            <a href="#top"
+               style="
+                   display: inline-block;
+                   padding: 8px 18px;
+                   border-radius: 6px;
+                   background-color: #f0f2f6;
+                   color: #1f77b4;
+                   text-decoration: none;
+                   font-weight: 600;
+                   border: 1px solid #d6d9df;
+               ">
+                ⬆️ Back to Top
+            </a>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
 
 # =========================================================
 # MAIN APP GLOBAL APPLICATION CSS
@@ -426,7 +452,14 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
+# =========================================================
+# PAGE TOP ANCHOR
+# =========================================================
 
+st.markdown(
+    '<div id="top"></div>',
+    unsafe_allow_html=True
+)
 # =========================================================
 # SIDEBAR NAVIGATION
 # =========================================================
@@ -785,7 +818,7 @@ if mode == "Single Audit":
                 st.error(f"PDF render error: {e}")
         with col2:
             st.download_button("📥 Download JSON", data=json.dumps(audit, indent=2), file_name="audit.json", mime="application/json", use_container_width=True)
-
+        back_to_top()
 # ---------------- MODE: Bulk Audit ----------------
 elif mode == "Bulk Audit":
     st.markdown("## Bulk Resume Audit")
@@ -951,7 +984,7 @@ elif mode == "Bulk Audit":
             csv_buf = io.StringIO()
             df.to_csv(csv_buf, index=False)
             st.download_button("📥 Download CSV Summary", data=csv_buf.getvalue(), file_name="bulk_audit_summary.csv", mime="text/csv", use_container_width=True)
-
+            back_to_top()
 
 # ---------------- MODE: Compare Candidates ----------------
 else:
@@ -1052,103 +1085,301 @@ else:
         )
         wcol2.info(f"**Why:** {comp.get('why_winner', '—')}")
 
-        df = pd.DataFrame([{
-            "candidate_name": r.get("candidate_name", "—"),
-            "overall_score": int(r.get("overall_score", 0) or 0),
-            "jd_match_score": int(r.get("jd_match_score", 0) or 0),
-            "experience_score": int(r.get("experience_score", 0) or 0),
-            "quality_score": int(r.get("quality_score", 0) or 0),
-            "verdict": r.get("verdict", "—"),
-        } for r in ranking])
+        # -------------------------------------------------------
+        # Build Comparison DataFrame
+        # -------------------------------------------------------
 
-        col1, col2 = st.columns(2)
-        with col1:
-            st.plotly_chart(charts.bar_compare(df, "Metric Comparison"), use_container_width=True, key="cmp_bar")
-        with col2:
-            st.plotly_chart(charts.horizontal_ranking(df, "Ranking"), use_container_width=True, key="cmp_rank")
+        df = pd.DataFrame([
+            {
+                "candidate_name": r.get("candidate_name", "—"),
+                "overall_score": int(r.get("overall_score", 0) or 0),
+                "jd_match_score": int(r.get("jd_match_score", 0) or 0),
+                "experience_score": int(r.get("experience_score", 0) or 0),
+                "quality_score": int(r.get("quality_score", 0) or 0),
+                "verdict": r.get("verdict", "—"),
+            }
+            for r in ranking
+        ])
+
+        # -------------------------------------------------------
+        # Validate Comparison DataFrame
+        # -------------------------------------------------------
+
+        required_columns = {
+            "candidate_name",
+            "overall_score",
+            "jd_match_score",
+            "experience_score",
+            "quality_score",
+        }
+
+        # -------------------------------------------------------
+        # Comparison Charts
+        # -------------------------------------------------------
+
+        if required_columns.issubset(df.columns) and len(df) > 0:
+
+            col1, col2 = st.columns(2)
+
+            with col1:
+                st.plotly_chart(
+                    charts.bar_compare(
+                        df,
+                        "Metric Comparison"
+                    ),
+                    use_container_width=True,
+                    key="cmp_bar",
+                )
+
+            with col2:
+                st.plotly_chart(
+                    charts.horizontal_ranking(
+                        df,
+                        "Ranking"
+                    ),
+                    use_container_width=True,
+                    key="cmp_rank",
+                )
+
+        else:
+
+            st.error("Comparison DataFrame is invalid.")
+
+            missing_columns = required_columns - set(df.columns)
+
+            if missing_columns:
+                st.write(
+                    "Missing Columns:",
+                    missing_columns
+                )
+
+
+        # -------------------------------------------------------
+        # Ranking Table
+        # -------------------------------------------------------
 
         st.markdown("### 📋 Ranking Table")
-        st.dataframe(df, use_container_width=True, hide_index=True)
+
+        st.dataframe(
+            df,
+            use_container_width=True,
+            hide_index=True
+        )
+
+
+        # -------------------------------------------------------
+        # Executive Summary
+        # -------------------------------------------------------
 
         st.markdown("### 📝 Executive Summary")
-        st.write(comp.get("comparison_summary", "—"))
+
+        st.write(
+            comp.get("comparison_summary", "—")
+        )
+
+
+        # -------------------------------------------------------
+        # Candidate Details
+        # -------------------------------------------------------
 
         for r in ranking:
-            with st.expander(f"#{r.get('rank','—')} · {r.get('candidate_name','—')} · {r.get('verdict','—')}"):
+
+            candidate_name = r.get(
+                "candidate_name",
+                "—"
+            )
+
+            rank_number = r.get(
+                "rank",
+                "—"
+            )
+
+            verdict = r.get(
+                "verdict",
+                "—"
+            )
+
+            with st.expander(
+                f"#{rank_number} · {candidate_name} · {verdict}"
+            ):
+
                 a, b = st.columns(2)
+
                 with a:
+
                     st.markdown("**💪 Key Strengths**")
-                    for s in r.get("key_strengths") or []:
-                        st.markdown(f"- {s}")
+
+                    strengths = r.get(
+                        "key_strengths"
+                    ) or []
+
+                    if strengths:
+
+                        for s in strengths:
+                            st.markdown(f"- {s}")
+
+                    else:
+
+                        st.caption("No key strengths provided.")
+
+
                 with b:
+
                     st.markdown("**⚠️ Key Gaps**")
-                    for s in r.get("key_gaps") or []:
-                        st.markdown(f"- {s}")
-                        fc = r.get("_format_check")
 
-        if fc:
+                    gaps = r.get(
+                        "key_gaps"
+                    ) or []
 
-            st.markdown("### 📋 Organization Format Compliance")
+                    if gaps:
+
+                        for s in gaps:
+                            st.markdown(f"- {s}")
+
+                    else:
+
+                        st.caption("No key gaps provided.")
+
+
+        # -------------------------------------------------------
+        # Organization Format Compliance
+        # -------------------------------------------------------
+
+        for r in ranking:
+
+            fc = r.get("_format_check")
+
+            if not fc:
+                continue
+
+            candidate_name = r.get(
+                "candidate_name",
+                "Candidate"
+            )
+
+            st.markdown(
+                f"### 📋 Organization Format Compliance — {candidate_name}"
+            )
 
             st.metric(
                 "Compliance Score",
-                f"{fc['score']}%",
-                f"{fc['passed']}/{fc['total']} Passed"
+                f"{fc.get('score', 0)}%",
+                f"{fc.get('passed', 0)}/{fc.get('total', 0)} Passed"
             )
 
-            for item in fc["items"]:
+            for item in fc.get("items", []):
 
-                if item["passed"]:
-                    st.success(f"✅ {item['item']}")
+                if item.get("passed"):
+
+                    st.success(
+                        f"✅ {item.get('item', '—')}"
+                    )
+
                 else:
-                    st.error(f"❌ {item['item']}")
+
+                    st.error(
+                        f"❌ {item.get('item', '—')}"
+                    )
 
                 if item.get("note"):
-                    st.caption(item["note"])
+
+                    st.caption(
+                        item.get("note")
+                    )
+
+
+        # -------------------------------------------------------
+        # PDF Reports
+        # -------------------------------------------------------
 
         st.markdown("---")
+
         try:
+
+            # Create chart images for PDF generation
             pngs = {
-                "bar": charts.fig_to_png_bytes(charts.bar_compare(df), width=900, height=420),
-                "ranking": charts.fig_to_png_bytes(charts.horizontal_ranking(df), width=900, height=max(360, 60*len(df))),
+                "bar": charts.fig_to_png_bytes(
+                    charts.bar_compare(df),
+                    width=900,
+                    height=420,
+                ),
+
+                "ranking": charts.fig_to_png_bytes(
+                    charts.horizontal_ranking(df),
+                    width=900,
+                    height=max(
+                        360,
+                        60 * len(df)
+                    ),
+                ),
             }
-            #pdf_bytes = pdf_report.build_compare_pdf(comp)#, pngs)
-            #pdf_bytes = pdf_report.build_compare_pdf(comp,format_checks=[r.get("_format_check") for r in ranking])
-            #st.download_button(
-            #    "📥 Download Comparison PDF",
-            #    data=pdf_bytes,
-            #    file_name=f"Resume_comparison_Report{datetime.now().strftime('%Y%m%d_%H%M')}.pdf",
-            #    mime="application/pdf",
-            #    use_container_width=True,
-            #)
+
+            # Build comparison summary + individual candidate reports
             reports_dictionary = pdf_report.build_compare_pdf(
                 comp,
-                format_checks=[r.get("_format_check") for r in ranking]
+                format_checks=[
+                    r.get("_format_check")
+                    for r in ranking
+                ]
             )
+
+            # ---------------------------------------------------
+            # Comparison Summary PDF
+            # ---------------------------------------------------
 
             st.download_button(
                 "📊 Download Comparison Summary Report",
-                data=reports_dictionary["COMPARE_SUMMARY"],
-                file_name=f"Resume_Comparison_Summary_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf",
+
+                data=reports_dictionary[
+                    "COMPARE_SUMMARY"
+                ],
+
+                file_name=(
+                    f"Resume_Comparison_Summary_"
+                    f"{datetime.now().strftime('%Y%m%d_%H%M')}.pdf"
+                ),
+
                 mime="application/pdf",
+
                 use_container_width=True,
             )
 
-            st.markdown("#### 📥 Download Individual Candidate Reports")
+
+            # ---------------------------------------------------
+            # Individual Candidate Reports
+            # ---------------------------------------------------
+
+            st.markdown(
+                "#### 📥 Download Individual Candidate Reports"
+            )
 
             for report_name, pdf_data in reports_dictionary.items():
 
                 if report_name == "COMPARE_SUMMARY":
                     continue
 
-                readable_name = report_name.replace("_", " ")
+                readable_name = report_name.replace(
+                    "_",
+                    " "
+                )
 
                 st.download_button(
                     label=f"📄 Download Report — {readable_name}",
+
                     data=pdf_data,
+
                     file_name=report_name,
+
                     mime="application/pdf",
+
                     use_container_width=True,
                 )
+
+
         except Exception as e:
-            st.error(f"PDF render error: {e}")
+
+            st.error(
+                f"PDF render error: {e}"
+            )
+
+        back_to_top()
