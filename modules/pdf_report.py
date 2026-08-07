@@ -452,20 +452,17 @@ def _kv_table(rows, styles):
 def _checklist_table(items, styles):
 
     rows = [
-
         [
-
             Paragraph("<b>Company Guideline</b>", styles["TableHeader"]),
-
             Paragraph("<b>Status</b>", styles["TableHeader"]),
-
             Paragraph("<b>Remarks</b>", styles["TableHeader"]),
-
         ]
-
     ]
 
     for item in items:
+
+        if not isinstance(item, dict):
+            continue
 
         title = (
             item.get("check")
@@ -482,7 +479,6 @@ def _checklist_table(items, styles):
         )
 
         label = "PASS" if passed else "FAIL"
-
         colour = BRAND_ACCENT if passed else BRAND_DANGER
 
         note = (
@@ -491,103 +487,92 @@ def _checklist_table(items, styles):
             or item.get("remarks")
             or "—"
         )
+        note = str(note).strip()
+        # Prevent oversized text from breaking PDF rendering
+        if len(note) > 300:
+            note = note[:300] + "..."
+            
+        rows.append([
+            _P(title, styles, "BodySmall"),
 
-        ##rows.append([
-        #    _P(title, styles),
-        #    Paragraph(
-        #        f"<font color='{colour.hexval()}'><b>{label}</b></font>",
-         #       styles["Body2"],
-        #    ),
-        #    _P(note, styles, "Body2Small"),
-        #])
-        rows.append(
+            Paragraph(
+                f"<font color='{colour.hexval()}'><b>{label}</b></font>",
+                styles["BodySmall"],
+            ),
 
-            [
+            _P(note, styles, "BodySmall"),
+        ])
 
-                _P(title, styles),
-
-                Paragraph(
-
-                    f"<font color='{colour.hexval()}'><b>{label}</b></font>",
-
-                    styles["Body2"],
-
-                ),
-
-                _P(note, styles, "BodySmall"),
-
-            ]
-
-        )
+    # Safety: make sure there is at least one data row
+    if len(rows) == 1:
+        rows.append([
+            _P("No compliance checks available", styles, "BodySmall"),
+            _P("—", styles, "BodySmall"),
+            _P("—", styles, "BodySmall"),
+        ])
 
     tbl = Table(
-
         rows,
-
-        colWidths=[7.2 * cm, 2.1 * cm, 8.0 * cm],
-
+        colWidths=[
+            6.3 * cm,
+            2.0 * cm,
+            9.0 * cm,
+        ],
+        repeatRows=1,
+        splitByRow=1,
+        hAlign="LEFT",
     )
 
     tbl.setStyle(
+        TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), BRAND_PRIMARY),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
 
-        TableStyle(
+            ("ROWBACKGROUNDS",
+             (0, 1),
+             (-1, -1),
+             [colors.white, BRAND_LIGHT]),
 
-            [
+            ("GRID",
+             (0, 0),
+             (-1, -1),
+             0.3,
+             BRAND_BORDER),
 
-                ("BACKGROUND", (0, 0), (-1, 0), BRAND_PRIMARY),
+            ("TOPPADDING",
+             (0, 0),
+             (-1, -1),
+             5),
 
-                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("BOTTOMPADDING",
+             (0, 0),
+             (-1, -1),
+             5),
 
-                ("ROWBACKGROUNDS",
+            ("LEFTPADDING",
+             (0, 0),
+             (-1, -1),
+             6),
 
-                 (0, 1),
+            ("RIGHTPADDING",
+             (0, 0),
+             (-1, -1),
+             6),
 
-                 (-1, -1),
+            ("VALIGN",
+             (0, 0),
+             (-1, -1),
+             "TOP"),
 
-                 [colors.white, BRAND_LIGHT]),
-
-                ("GRID",
-
-                 (0, 0),
-
-                 (-1, -1),
-
-                 0.3,
-
-                 BRAND_BORDER),
-
-                ("BOTTOMPADDING",
-
-                 (0, 0),
-
-                 (-1, -1),
-
-                 7),
-
-                ("TOPPADDING",
-
-                 (0, 0),
-
-                 (-1, -1),
-
-                 7),
-
-                ("VALIGN",
-
-                 (0, 0),
-
-                 (-1, -1),
-
-                 "TOP"),
-
-            ]
-
-        )
-
+            # Allow long text to wrap inside cells
+            ("WORDWRAP",
+             (0, 0),
+             (-1, -1),
+             "CJK"),
+        ])
     )
 
     return tbl
-
 
 # ---------------------------------------------------------
 # COMPANY COMPLIANCE
@@ -810,20 +795,34 @@ def build_single_pdf(audit, chart_pngs, resume_text="", format_check=None):
         story.append(Spacer(1, 0.4 * cm))
 
     # --- RENDER COMPLETELY COMPLIANT SYNCHRONIZED MATRIX TABLE ---
-    story.append(Paragraph(f"Company Guidelines Format Compliance — {passed}/{total} Requirements Met ({score}%)", styles["H2Brand"]))
-    story.append(_checklist_table(extracted_items, styles))
-    story.append(Spacer(1, 0.4 * cm))
-   # story.append(Spacer(1, 0.4 * cm))
-
-    story.append(
-        Table(
-            [[""]],
-            colWidths=[17.2 * cm],
-            style=[
-                ("LINEABOVE", (0,0), (-1,-1), 0.5, BRAND_BORDER)
-            ]
+        story.append(
+            Paragraph(
+                f"Company Guidelines Format Compliance — "
+                f"{passed}/{total} Requirements Met ({score}%)",
+                styles["H2Brand"]
+            )
         )
-    )
+
+        story.append(
+            _checklist_table(
+                extracted_items,
+                styles
+            )
+        )
+
+        story.append(
+            Spacer(1, 0.4 * cm)
+        )
+
+        story.append(
+            Table(
+                [[""]],
+                colWidths=[17.2 * cm],
+                style=[
+                    ("LINEABOVE", (0, 0), (-1, -1), 0.5, BRAND_BORDER)
+                ]
+            )
+        )
 
     story.append(
         Spacer(1, 0.25 * cm)
@@ -860,7 +859,23 @@ def build_single_pdf(audit, chart_pngs, resume_text="", format_check=None):
     story.append(Paragraph("Critical Evaluation Red Flags", styles["H2Brand"]))
     story += _bullets(audit.get("red_flags"), styles)
 
-    doc.build(story, canvasmaker=NumberedCanvas)
+    try:
+        doc.build(
+        story,
+        canvasmaker=NumberedCanvas
+    )
+
+    except Exception as e:
+        print("=" * 80)
+        print("PDF GENERATION FAILED")
+        print(f"Candidate: {audit.get('candidate_name', 'Candidate')}")
+        print(f"Error: {e}")
+        print("=" * 80)
+
+        raise RuntimeError(
+            "PDF generation failed while formatting the report."
+        ) from e
+
     return buf.getvalue()
 
 # ==========================================================

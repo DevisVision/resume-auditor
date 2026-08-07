@@ -340,9 +340,11 @@ def highest_education_has_cgpa(text: str) -> tuple[bool, str]:
 
         if inside_education:
 
+            #if cgpa_pattern.search(l):
+            #    return True, l.strip()
             if cgpa_pattern.search(l):
-                return True, l.strip()
-
+                match = cgpa_pattern.search(l)
+                return True, f"CGPA detected: {match.group(0)}"
     return False, "CGPA not mentioned"
 
 def build_format_checklist(file_name: str, file_bytes: bytes, text: str, years_exp: float) -> dict:
